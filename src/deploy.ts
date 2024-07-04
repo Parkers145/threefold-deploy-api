@@ -1,8 +1,8 @@
-// src/deploy.ts
-import { DiskModel, FilterOptions, MachineModel, MachinesModel, NetworkModel, GatewayNameModel } from "grid3_client"; // Adjust the import based on your actual client library
+import { DiskModel, FilterOptions, MachineModel, MachinesModel, NetworkModel, GatewayNameModel } from "@threefold/grid_client";
 import { config, getClient } from "./client_loader";
 import { log } from "./utils";
 import * as fs from "fs";
+
 
 // Define deployment configurations
 const deployments = {
@@ -113,7 +113,7 @@ function loadDeploymentConfig(filePath: string) {
   return deploymentConfig;
 }
 
-export async function deploy(deploymentNameOrPath: string, instanceId: string) {
+async function deploy(deploymentNameOrPath: string, instanceId: string) {
   const grid3 = await getClient();
   let deployment: any;
 
@@ -252,7 +252,7 @@ export async function deploy(deploymentNameOrPath: string, instanceId: string) {
   }
 }
 
-export async function remove(deploymentNameOrPath: string, instanceId: string) {
+async function remove(deploymentNameOrPath: string, instanceId: string) {
   const grid3 = await getClient();
   let deployment: any;
 
@@ -295,24 +295,58 @@ export async function remove(deploymentNameOrPath: string, instanceId: string) {
   }
 }
 
-export async function getInfo(deploymentNameOrPath: string, instanceId: string) {
+async function getNetworkConfig(client: any, networkName: string, ipRange: string) {
+  const res = await client.networks.getWireGuardConfigs({ name: networkName, ipRange });
+  log("================= WireGuard Config =================");
+  res.forEach((conf: string) => {
+    log(conf);
+  });
+  log("===================================================");
+}
+
+async function getGatewayConfig(client: any, deployment: any, uniqueGatewayNameBase: string) {
+  let gatewayCounter = 1;
+  for (const vmConfig of deployment.vms) {
+    if (vmConfig.has_gateway) {
+      const gatewayName = `${uniqueGatewayNameBase}${gatewayCounter}`;
+      gatewayCounter++;
+
+      try {
+        const gatewayInfo = await client.gateway.getObj(gatewayName);
+        log(`+++ Gateway Info for ${gatewayName} +++`);
+        log(gatewayInfo);
+      } catch (error) {
+        log(`Error getting info for gateway ${gatewayName}: ${error.message}`);
+      }
+    }
+  }
+}
+
+async function getDeploymentInfo(client: any, uniqueDeploymentName: string) {
+  log(`Getting info for deployment ${uniqueDeploymentName}`);
+  const deployedVm = await client.machines.getObj(uniqueDeploymentName);
+  log("+++ Deployment Info +++");
+  log(deployedVm);
+}
+
+async function getInfo(deploymentNameOrPath: string, instanceId: string) {
   const grid3 = await getClient();
   let deployment: any;
 
-  if (fs.existsSync(deploymentNameOrPath)) {
+  if (deploymentNameOrPath.endsWith(".json")) {
     deployment = loadDeploymentConfig(deploymentNameOrPath);
   } else {
     deployment = deployments[deploymentNameOrPath];
   }
 
   const uniqueDeploymentName = `${deployment.name}${instanceId}`;
+  const uniqueGatewayNameBase = `${uniqueDeploymentName}gw`;
+  const uniqueNetworkName = `${uniqueDeploymentName}n`; // Network name
 
   try {
-    // Get deployment info
-    log(`Getting info for deployment ${uniqueDeploymentName}`);
-    const deployedVm = await grid3.machines.getObj(uniqueDeploymentName);
-    log("+++ Deployment Info +++");
-    log(deployedVm);
+    await getDeploymentInfo(grid3, uniqueDeploymentName);
+    await getNetworkConfig(grid3, uniqueNetworkName, deployment.network.ip_range);
+    await getGatewayConfig(grid3, deployment, uniqueGatewayNameBase);
   } catch (error) {
     log(`Error getting info: ${error.message}`);
   } finally {
@@ -320,3 +354,4 @@ export async function getInfo(deploymentNameOrPath: string, instanceId: string) 
   }
 }
 
+export { deploy, remove, getInfo }
